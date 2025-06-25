@@ -1,25 +1,35 @@
 import re
 
 import graphene
+from graphene import Decimal
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
-from decimal import Decimal
+from decimal import Decimal as D
 from crm.models import Customer, Order, Product
+from graphene_django.filter import DjangoFilterConnectionField
+from graphene import relay
+from crm.filters import CustomerFilter, ProductFilter, OrderFilter
 
 
 class CustomerType(DjangoObjectType):
     class Meta:
         model = Customer
+        filterset_class = CustomerFilter
+        interfaces = (relay.Node,)
 
 
 class OrderType(DjangoObjectType):
     class Meta:
         model = Order
+        filterset_class = OrderFilter
+        interfaces = (relay.Node,)
 
 
 class ProductType(DjangoObjectType):
     class Meta:
         model = Product
+        filterset_class = ProductFilter
+        interfaces = (relay.Node,)
 
 
 class CreateCustomer(graphene.Mutation):
@@ -78,17 +88,17 @@ class BulkCreateCustomers(graphene.Mutation):
 class CreateProduct(graphene.Mutation):
     class Arguments:
         name = graphene.String(required=True)
-        price = graphene.Decimal(required=True)
+        price = Decimal(required=True)
         stock = graphene.Int()
 
     product = graphene.Field(ProductType)
 
     def mutate(self, info, name, price, stock=0):
         if price <= 0:
-            raise Exception("Price must be positive")
+            raise Exception("Price must be a positive value.")
         if stock < 0:
-            raise Exception("Stock cannot be negative")
-        product = Product(name=name, price=Decimal(price), stock=stock)
+            raise Exception("Stock cannot be negative.")
+        product = Product(name=name, price=D(price), stock=stock)
         product.save()
         return CreateProduct(product=product)
 
@@ -136,15 +146,18 @@ class Mutation(graphene.ObjectType):
 
 
 class Query(graphene.ObjectType):
-    all_customers = graphene.List(CustomerType)
-    all_products = graphene.List(ProductType)
-    all_orders = graphene.List(OrderType)
+    all_customers = DjangoFilterConnectionField(CustomerType)
+    all_products = DjangoFilterConnectionField(ProductType)
+    all_orders = DjangoFilterConnectionField(OrderType)
 
-    def resolve_all_customers(root, info):
-        return Customer.objects.all()
+    def resolve_all_customers(root, info, order_by=None, **kwargs):
+        qs = Customer.objects.all()
+        return qs.order_by(order_by) if order_by else qs
 
-    def resolve_all_products(root, info):
-        return Product.objects.all()
+    def resolve_all_products(root, info, order_by=None, **kwargs):
+        qs = Product.objects.all()
+        return qs.order_by(order_by) if order_by else qs
 
-    def resolve_all_orders(root, info):
-        return Order.objects.select_related('customer').prefetch_related('products')
+    def resolve_all_orders(root, info, order_by=None, **kwargs):
+        qs = Order.objects.all()
+        return qs.order_by(order_by) if order_by else qs
